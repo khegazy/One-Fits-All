@@ -1,0 +1,10 @@
+normalize_input: False
+recursive: True
+tokenizer: cdf
+tokenizer_config:
+    n_tokens: 3500
+predict_tokens: False
+loss_config:
+    type: mse
+pretrain: True
+freeze: True

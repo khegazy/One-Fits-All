@@ -8,7 +8,7 @@ from datetime import datetime
 from distutils.util import strtobool
 import pandas as pd
 
-from utils.metrics import metric
+from utils.metrics import metric, metrics_to_dict
 
 plt.switch_backend('agg')
 
@@ -246,6 +246,55 @@ def convert_tsf_to_dataframe(
             contain_missing_values,
             contain_equal_length,
         )
+
+
+def evaluate_dataset(model, data_loader, criterion, args, device, itr, as_dict=True, is_training=False):
+    #total_loss = []
+    if is_training:
+        if args.model == 'PatchTST' or args.model == 'DLinear' or args.model == 'TCN':
+            model.eval()
+        else:
+            model.in_layer.eval()
+            model.out_layer.eval()
+    total_loss = 0
+    total_metrics = 0
+    total_samples = 0
+    with torch.no_grad():
+        for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(data_loader):
+            n_samples = batch_x.shape[0]
+            batch_x = batch_x.float().to(device)
+            batch_y = batch_y.float()
+
+            batch_x_mark = batch_x_mark.float().to(device)
+            batch_y_mark = batch_y_mark.float().to(device)
+
+            predictions = model(batch_x, itr)
+            
+            # encoder - decoder
+            values = predictions.values[:, -args.pred_len:, :]
+            batch_y = batch_y[:, -args.pred_len:, :].to(device)
+
+            total_loss = total_loss + criterion(values, batch_y)*n_samples
+            total_metrics = total_metrics + metric(values, batch_y)*n_samples
+            total_samples = total_samples + n_samples
+
+    total_metrics = total_metrics.detach().cpu()/total_samples
+    total_loss = total_loss.detach().cpu()/total_samples
+    total_metrics = total_metrics.tolist()
+    total_loss = total_loss.item()
+    if as_dict:
+        total_metrics = metrics_to_dict(total_metrics)
+        total_metrics["loss"] = total_loss
+    else:
+        total_metrics = np.concatenate([np.array([total_loss]), total_metrics])
+    
+    if is_training:
+        if args.model == 'PatchTST' or args.model == 'DLinear' or args.model == 'TCN':
+            model.train()
+        else:
+            model.in_layer.train()
+            model.out_layer.train()
+    return total_metrics
 
 
 def vali(model, vali_data, vali_loader, criterion, args, device, itr):

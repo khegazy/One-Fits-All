@@ -1,0 +1,8 @@
+normalize_input: True
+recursive: False
+predict_tokens: False
+tokenizer: None
+loss_config:
+    type: mse
+pretrain: True
+freeze: True

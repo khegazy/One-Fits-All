@@ -10,3 +10,6 @@ Zero-shot_Learning/datasets
 *__pycache__*
 *.ipynb_checkpoints*
 */.DS_Store
+
+*/slurm_logs/*
+*/slurm_scripts/*

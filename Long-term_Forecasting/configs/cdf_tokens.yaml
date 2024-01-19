@@ -1,0 +1,8 @@
+normalize_input: False
+tokenizer: cdf
+tokenizer_config:
+    n_tokens: 3500
+loss_config:
+    type: mse
+pretrain: True
+freeze: True
