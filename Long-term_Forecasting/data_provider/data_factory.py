@@ -1,8 +1,9 @@
-from data_provider.data_loader import Dataset_Custom, Dataset_Pred, Dataset_TSF, Dataset_ETT_hour, Dataset_ETT_minute
+from data_provider.data_loader import Dataset_Custom, Dataset_Pred, Dataset_TSF, Dataset_ETT_hour, Dataset_ETT_minute, Dataset_Custom_Test
 from torch.utils.data import DataLoader
 
 data_dict = {
     'custom': Dataset_Custom,
+    'custom_test': Dataset_Custom_Test,
     'tsf_data': Dataset_TSF,
     'ett_h': Dataset_ETT_hour,
     'ett_m': Dataset_ETT_minute,
@@ -11,6 +12,8 @@ data_dict = {
 
 def data_provider(args, flag, drop_last_test=True, train_all=False):
     Data = data_dict[args.data]
+    if args.debug:
+        Data = data_dict["custom_test"]
     timeenc = 0 if args.embed != 'timeF' else 1
     percent = args.percent
     max_len = args.max_len
@@ -48,7 +51,10 @@ def data_provider(args, flag, drop_last_test=True, train_all=False):
         freq=freq,
         percent=percent,
         max_len=max_len,
-        train_all=train_all
+        train_all=train_all,
+        noise=args.noise,
+        noise_var=args.noise_var, 
+        noise_scale=args.noise_scale
     )
     print(flag, len(data_set))
     data_loader = DataLoader(
