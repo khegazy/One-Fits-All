@@ -2,6 +2,7 @@ import os
 import json
 import numpy as np
 from matplotlib import pyplot as plt
+from bisect import bisect
 
 import utils
 from configs import configs
@@ -9,42 +10,104 @@ from models import tokenizers
 from data_provider.data_factory import data_provider
 
 args = utils.build_default_arg_parser().parse_args()
-setting = '{}_{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_gl{}_df{}_eb{}'.format(args.model_id, args.model_config, args.seq_len, args.label_len, args.pred_len,
-                                                                args.d_model, args.n_heads, args.e_layers, args.gpt_layers, 
-                                                                args.d_ff, args.embed)
-if args.debug:
-    setting = "debug_" + setting
 
-# Get Configuration
-config = configs.import_config(args.model_config, setting, args, 0)
+plot_types, figs, axes = None, None, None
+noise_label = f"{args.noise}_{args.noise_var}"
+plot_configs = ['OFA', 'cdf_tokens_2500', 'cdf_tokens_5000', 'cdf_tokens_10000', 'convPatch_tokens']
+gridspec = {
+    'height_ratios' : [2, 1],
+    'hspace' : 0,
+    'left' : 0.17,
+    'top' : 0.98,
+    'right' : 0.96
+}
+colors = ['k', 'b', 'r', 'green', 'orange', 'pink', 'navyß']
+for idx_config, pConfig in enumerate(plot_configs):
+    args.model_config = pConfig
+    setting = '{}_{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_gl{}_df{}_eb{}'.format(args.model_id, args.model_config, args.seq_len, args.label_len, args.pred_len,
+                                                                    args.d_model, args.n_heads, args.e_layers, args.gpt_layers, 
+                                                                    args.d_ff, args.embed)
+    if args.debug:
+        setting = "debug_" + setting
 
-# Get tokenizer
-#train_data, train_loader = data_provider(args, 'train')
-tokenizer = tokenizers.get_tokenizer(config, None, 'cpu')
+    # Get Configuration
+    config = configs.import_config(args.model_config, setting, args, 0)
 
-# Get noise curve
-tk_label = "None" if tokenizer is None else tokenizer.get_hash()
-ls_label = f"{config.loss_config['type']}{utils.get_hash(json.dumps(config.loss_config, sort_keys=True))}"
-model_folder = f"tk-{tk_label}_ls-{ls_label}_rc-{config.recursive}_predTkns-{config.predict_tokens}_preTrn-{config.pretrain}"
-checkpoint_model_dir = os.path.join(args.checkpoints, setting, model_folder)
-with open(os.path.join(checkpoint_model_dir, "noise_curve.json"), "r") as file:
-    noise_results = json.load(file)
+    # Get tokenizer
+    #train_data, train_loader = data_provider(args, 'train')
+    tokenizer = tokenizers.get_tokenizer(config, None, 'cpu')
 
-# Plot
-plt_dir = os.path.join("plots", setting, model_folder)
-if not os.path.exists(plt_dir):
-    os.makedirs(plt_dir)
-scales = noise_results['std_scale']
-order_idx = np.argsort(scales)
-for key, val in noise_results.items():
-    if "std" in key:
-        continue
-    stds = noise_results[key+'_std']
-    if np.isnan(stds[0]):
-        stds = np.zeros_like(stds)
-    fig, ax = plt.subplots()
-    ax.errorbar(scales, val, yerr=stds)
-    ax.set_ylabel(key)
-    ax.set_xlabel("noise standard deviation scale")
-    plt.tight_layout()
-    fig.savefig(os.path.join(plt_dir, key+'.png'))
+    # Get noise curve
+    model_folder, checkpoint_model_dir, checkpoint_dir = utils.get_folder_names(
+        args, setting, config, tokenizer, has_itr=False
+    )
+    
+    with open(os.path.join(checkpoint_dir, f"noise_{args.noise}_{args.noise_var}_results.json"), "r") as file:
+        noise_results = json.load(file)
+    if plot_types is None:
+        plot_types, figs, axes = [], [], []
+        for key in noise_results.keys():
+            if 'std' not in key:
+                plot_types.append(key)
+                fig, ax = plt.subplots(2, 1, gridspec_kw=gridspec)
+                figs.append(fig)
+                axes.append(ax)
+
+    # Plot
+    plt_dir = os.path.join("plots", setting, model_folder, noise_label)
+    if not os.path.exists(plt_dir):
+        os.makedirs(plt_dir)
+    scales = np.array(noise_results['std_scales'])
+    all_order_idx = np.argsort(scales)
+    if scales[all_order_idx[0]] == 0:
+        order_idx = all_order_idx[1:]
+    else:
+        order_dix = all_order_idx
+    if args.plot_max < np.amax(scales):
+        order_idx = order_idx[:bisect(scales[order_idx], args.plot_max)]
+    for idx, key in enumerate(plot_types):
+        stds = noise_results[key+'_std']
+        if np.isnan(stds[0]):
+            stds = np.zeros_like(stds)
+        plot_scales = np.array(scales)[order_idx] 
+        plot_ratios = np.array(noise_results[key])[order_idx]/noise_results[key][all_order_idx[0]] 
+        plot_ratios_std = stds[order_idx]/noise_results[key][all_order_idx[0]]
+        
+        fig, ax = plt.subplots(2, 1, gridspec_kw=gridspec)
+        ax[0].errorbar(plot_scales, np.array(noise_results[key])[order_idx])
+        ax[1].errorbar(plot_scales, plot_ratios, yerr=plot_ratios_std)
+        ax[0].set_ylabel(key)
+        ax[1].set_ylabel(f"{key} Ratio")
+        ax[1].set_xlabel("noise standard deviation scale")
+        #plt.tight_layout()
+        fig.savefig(os.path.join(plt_dir, key+'.png'))
+
+        axes[idx][0].errorbar(
+            plot_scales,
+            np.array(noise_results[key])[order_idx],
+            yerr=plot_ratios_std,
+            label=args.model_config,
+            color=colors[idx_config])
+        axes[idx][1].errorbar(
+            plot_scales,
+            plot_ratios,
+            yerr=plot_ratios_std,
+            label=args.model_config,
+            color=colors[idx_config])
+        axes[idx][0].set_xlim(plot_scales[0], min(plot_scales[-1], args.plot_max))
+        axes[idx][1].set_xlim(plot_scales[0], min(plot_scales[-1], args.plot_max))
+
+plot_dir = os.path.join("plots", noise_label)
+if not os.path.exists(plot_dir):
+    os.makedirs(plot_dir)
+for idx, ax in enumerate(axes):
+    ax[0].set_ylabel(plot_types[idx])
+    ax[1].set_ylabel(f"{plot_types[idx]} Ratios")
+    ax[0].xaxis.set_visible(False)
+    ax[1].set_xlabel("noise standard deviation scale")
+    ax[0].set_yscale('log')
+    ax[1].set_yscale('log')
+    ax[1].set_xscale('log')
+    ax[0].legend()
+    #plt.tight_layout()
+    figs[idx].savefig(os.path.join(plot_dir, f"{plot_types[idx]}.png"))
