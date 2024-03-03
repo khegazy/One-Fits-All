@@ -209,6 +209,8 @@ class Dataset_ETT_minute(Dataset):
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
 
+
+"""
 class Dataset_Custom(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
@@ -316,6 +318,7 @@ class Dataset_Custom(Dataset):
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
     
+"""
 
 class Dataset_Pred(Dataset):
     def __init__(self, root_path, flag='pred', size=None,
@@ -524,7 +527,7 @@ class Dataset_TSF(Dataset):
         else:
             return self.tot_len
 
-
+"""
 class Dataset_Custom(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
@@ -633,9 +636,10 @@ class Dataset_Custom(Dataset):
     def inverse_transform(self, data):
         return self.scaler.inverse_transform(data)
 
+"""
 
 
-class Dataset_Custom_Test(Dataset):
+class Dataset_Custom(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
                  target='OT', scale=True, timeenc=0, freq='h',
@@ -738,7 +742,18 @@ class Dataset_Custom_Test(Dataset):
         seq_y_mark = self.data_stamp[r_begin:r_end]
 
         if self.noise_transform is not None:
+            orig_seq_x = seq_x
             seq_x = self.noise_transform(seq_x)
+            """
+            test = (seq_x - orig_seq_x)/np.sqrt(orig_seq_x)
+            print("STD CHECK", test.shape, np.sum(np.isnan(test)), np.nanmean(test), np.nanstd(test))
+            fig, ax = plt.subplots()
+            idxs = np.arange(len(seq_x))
+            np.shuffle(idxs)
+            ax.plot(orig_seq_x[i)
+            """
+        else:
+            orig_seq_x = seq_x
 
         return seq_x, seq_y, seq_x_mark, seq_y_mark
 
@@ -746,6 +761,7 @@ class Dataset_Custom_Test(Dataset):
         return (len(self.data_x) - self.seq_len - self.pred_len + 1) * self.enc_in
 
     def add_noise_transform(self, noise, noise_drift, noise_var, noise_scale):
+        print("ADDING NOISE TRANSFORM", noise, noise_drift, noise_var, noise_scale)
         if noise is not None:
             self.noise_transform = transforms.get_transform(noise, noise_drift, noise_var, noise_scale)
         else:

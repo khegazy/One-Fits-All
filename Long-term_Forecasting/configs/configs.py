@@ -22,15 +22,22 @@ class RunConfig:
     patch_size : int
     batch_size : int
     iter : int
+    is_gpt : bool = True
     normalize_input : bool = True
     tokenizer : str = None
     tokenizer_config : Dict = None
+    predict_values : bool = True
+    value_loss_config : Dict = None
     predict_tokens : bool = False
-    loss_config : Dict = None
-    is_gpt : bool = True
-    pretrain : bool = False
+    token_loss_config : Dict = None
+    pretrain_embeddings : bool = False
+    pretrain_mask_ratio : float = None
+    embedding_value_loss_config : Dict = None
+    embedding_token_loss_config : Dict = None
+    do_pretrain_embeddings : bool = False
+    from_pretrain_model : bool = False
+    freeze_pretrain_model : bool = False
     recursive : bool = False
-    freeze : bool = False
 
 def import_yaml(address, is_expected=False):
     if os.path.exists(address):
@@ -72,12 +79,16 @@ def import_config(config_name, name, args, iter, tag="", dir="./configs/", is_ex
         embded = args.embed,
         batch_size = args.batch_size,
         iter = iter,
+        pretrain_embeddings = args.pretrain_embeddings,
+        pretrain_mask_ratio = args.pretrain_mask_ratio,
         **yaml_config
     )
 
-    if config.loss_config is None:
-        config.loss_config = {"type" : "mse"}
-
+    if config.tokenizer_config is not None:
+        config.tokenizer_config['patch_size'] = args.patch_size
+        config.tokenizer_config['stride'] = args.stride
+        config.tokenizer_config['embed_size'] = args.d_model
+    
     return config
 
 
