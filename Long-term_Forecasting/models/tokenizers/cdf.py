@@ -5,9 +5,12 @@ import numpy as np
 from utils.hashes import get_hash
 
 
-class CDFbinning():
+class CDFbinning(torch.nn.Module):
     def __init__(self, config, train_data, device):
+        super().__init__()
         self.n_tokens = config["n_tokens"]
+        self.is_patched = False
+        self.merge_patch = True
         if train_data is None:
             return None
         
@@ -37,7 +40,10 @@ class CDFbinning():
         self.token_dtype = torch.int32 if "dtype" not in config\
             else get_torch_dtype(config["dtype"]) 
         print(f"token limits | delta: {self.min_val} / {self.max_val} | {self.delta}") 
-
+    
+    def __len__(self):
+        return self.n_tokens
+    
     def get_hash(self):    
         tokenizer_args = {
             "name" : "cdfbinning",
@@ -46,13 +52,13 @@ class CDFbinning():
         self.hash = get_hash(json.dumps(tokenizer_args, sort_keys=True))
         return f"cdf{self.hash}"
     
-    def invert(self, tokens):
+    def invert_logits(self, logits, embeddings=None):
+        return self.invert_tokens(torch.argmax(logits, -1))
+    
+    def invert_tokens(self, tokens, emeddings=None):
         return self.token_values[tokens]
 
-    def __len__(self):
-        return self.n_tokens
-    
-    def __call__(self, input):
+    def forward(self, input):
         token_idxs = torch.searchsorted(self.token_values, input)
         token_idxs = token_idxs.to(self.token_dtype)
         token_idxs[token_idxs>=self.n_tokens] = self.n_tokens - 1
