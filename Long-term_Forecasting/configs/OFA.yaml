@@ -1,8 +1,14 @@
 normalize_input: True
 recursive: False
-predict_tokens: False
-tokenizer: None
-loss_config:
+
+predict_values: True
+value_loss_config:
     type: mse
-pretrain: True
-freeze: True
+    value_pred_scale : 1.0
+    token_pred_scale :
+predict_tokens: False
+
+tokenizer:
+
+from_pretrain_model: True
+freeze_pretrain_model: True

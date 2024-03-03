@@ -1,0 +1,33 @@
+recursive: False
+normalize_input: True
+from_pretrain_model: True
+freeze_pretrain_model: True
+
+tokenizer: convPatch
+tokenizer_config:
+    kernel: 5
+    n_layers: 3
+    n_filters: 32
+    n_tokens: 2500
+    legendre_init: True
+
+predict_values: True
+value_loss_config:
+    type: mse
+    value_pred_scale : 1.0
+    token_pred_scale : 
+predict_tokens: False
+token_loss_config:
+    type: cross_entropy
+    token_pred_scale : 1.0
+    value_pred_scale : 
+
+do_pretrain_embeddings: True
+embedding_value_loss_config:
+    type: mse
+    value_pred_scale : 
+    token_pred_scale : 
+embedding_token_loss_config:
+    type: cross_entropy
+    token_pred_scale : 0.1 
+    value_pred_scale : 1 

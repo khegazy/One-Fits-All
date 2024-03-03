@@ -1,0 +1,15 @@
+recursive: False
+normalize_input: False
+from_pretrain_model: True
+freeze_pretrain_model: True
+
+tokenizer: cdf
+tokenizer_config:
+    n_tokens: 2500
+
+predict_values: True
+value_loss_config:
+    type: mse
+    value_pred_scale : 1.0
+    token_pred_scale : 
+predict_tokens: False
