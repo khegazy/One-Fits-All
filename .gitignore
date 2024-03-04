@@ -13,3 +13,5 @@ Zero-shot_Learning/datasets
 
 */slurm_logs/*
 */slurm_scripts/*
+*png
+*txt
