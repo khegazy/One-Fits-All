@@ -37,7 +37,8 @@ class CDFbinning(torch.nn.Module):
         self.delta = torch.mean(
             torch.abs(self.token_values[:-1] - self.token_values[1:])
         ).cpu().item() 
-        self.token_dtype = torch.int32 if "dtype" not in config\
+        #was torch.int32
+        self.token_dtype = torch.int64 if "dtype" not in config\
             else get_torch_dtype(config["dtype"]) 
         print(f"token limits | delta: {self.min_val} / {self.max_val} | {self.delta}") 
     
@@ -58,7 +59,7 @@ class CDFbinning(torch.nn.Module):
     def invert_tokens(self, tokens, emeddings=None):
         return self.token_values[tokens]
 
-    def forward(self, input):
+    def forward(self, input, return_logits=False):
         token_idxs = torch.searchsorted(self.token_values, input)
         token_idxs = token_idxs.to(self.token_dtype)
         token_idxs[token_idxs>=self.n_tokens] = self.n_tokens - 1
@@ -71,6 +72,15 @@ class CDFbinning(torch.nn.Module):
                 dim=-1)),
             dim=-1
         )
+        tokens = tokens.to(self.token_dtype)
 
-        return tokens.to(self.token_dtype)
+        if return_logits:
+            logits = torch.zeros(
+                (*tokens.shape, self.n_tokens),
+                dtype=torch.float
+            )
+            logits[:,:,:,tokens] = 1e5
+            return logits
+        
+        return tokens
 

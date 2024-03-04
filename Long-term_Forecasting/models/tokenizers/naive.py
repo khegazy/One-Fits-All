@@ -13,7 +13,7 @@ class NaiveBinning(torch.nn.Module):
         self.merge_patch = True
         self.n_tokens = config["n_tokens"]
         self.cdf_cut = config['cdf_cut']
-        self.token_dtype = torch.int32
+        self.token_dtype = torch.int64
         
         histogram, bins = np.histogram(train_data, bins=100000)
         cdf = np.cumsum(histogram)
@@ -43,11 +43,20 @@ class NaiveBinning(torch.nn.Module):
     def __len__(self):
         return self.n_tokens
     
-    def forward(self, input):
+    def forward(self, input, return_logits=False):
         input = input - self.min_val
         input = input/self.delta
         input = input.to(torch.int64)
         input[input < 0] = 0
         input[input >= self.n_tokens] = self.n_tokens - 1
+        input = input.to(self.token_dtype)
+
+        if return_logits:
+            logits = torch.zeros(
+                (*input.shape, self.n_tokens),
+                dtype=torch.float
+            )
+            logits[:,:,:,input] = 1e5
+            return logits
 
         return input.to(self.token_dtype)
