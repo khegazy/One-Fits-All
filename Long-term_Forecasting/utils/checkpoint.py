@@ -50,15 +50,26 @@ class CheckpointPathInfo:
     tag: str
     epochs: int
     is_optimal: bool = True
+    is_pretrain: bool = False
 
 
 class CheckpointIO:
     def __init__(
-        self, directory: str, tag: str, keep: bool = False
+        self, 
+        directory: str,
+        tag: str,
+        keep: bool = False,
+        is_pretrain: bool = None
     ) -> None:
         self.directory = directory
         self.tag = tag
         self.keep = keep
+        self.is_pretrain = is_pretrain
+        if is_pretrain is None:
+            self.search_pretrain = False
+            self.is_pretrain = False
+        else:
+            self.search_pretrain = True
         self.old_optimal_ckpt_path: Optional[str] = None
         self.old_latest_ckpt_path: Optional[str] = None
         self.old_optimal_train_values_path: Optional[str] = None
@@ -69,9 +80,16 @@ class CheckpointIO:
         self._filename_extension = "pt"
         self._optimal_string = "_optimal"
         self._latest_string = "_latest"
+        self._pretrain_string = "_pretrain"
 
-    def _get_checkpoint_filename(self, epochs: int, is_optimal: bool = True) -> str:
-        train_type = self._optimal_string if is_optimal else self._latest_string
+    def _get_checkpoint_filename(
+            self,
+            epochs: int,
+            is_optimal: bool = True,
+            is_pretrain: bool = False
+        ) -> str:
+        train_type = self._pretrain_string if is_pretrain or self.is_pretrain else ""
+        train_type += self._optimal_string if is_optimal else self._latest_string
         return (
             self.tag
             + train_type
@@ -82,9 +100,10 @@ class CheckpointIO:
         )
     
     def _get_train_values_filename(
-        self, epochs: int, is_optimal: bool = True
+        self, epochs: int, is_optimal: bool = True, is_pretrain: bool = False
     ) -> str:
-        train_type = self._optimal_string if is_optimal else self._latest_string
+        train_type = self._pretrain_string if is_pretrain or self.is_pretrain else ""
+        train_type += self._optimal_string if is_optimal else self._latest_string
         return (
             self._train_values_prefix
             + train_type
@@ -105,7 +124,9 @@ class CheckpointIO:
     def _parse_checkpoint_path(self, path: str) -> Optional[CheckpointPathInfo]:
         filename = os.path.basename(path)
         is_optimal = self._latest_string not in filename
-        train_type = self._optimal_string if is_optimal else self._latest_string
+        is_pretrain = self._pretrain_string in filename
+        train_type = self._pretrain_string if is_pretrain else ""
+        train_type += self._optimal_string if is_optimal else self._latest_string
         
         regex = re.compile(
             rf"^(?P<tag>.+){self._epochs_string}(?P<epochs>\d+)\.{self._filename_extension}$"
@@ -116,27 +137,60 @@ class CheckpointIO:
             path=path,
             tag=match.group("tag")[:-len(train_type)],
             epochs=int(match.group("epochs")),
-            is_optimal=is_optimal
+            is_optimal=is_optimal,
+            is_pretrain=is_pretrain
         )
 
-    def _get_latest_checkpoint_path(self, is_optimal: bool = True) -> Optional[str]:
+    def _get_latest_checkpoint_path(self, is_optimal: bool = True, is_pretrain: bool = False) -> Optional[str]:
         all_file_paths = self._list_file_paths()
         checkpoint_info_list = [
             self._parse_checkpoint_path(path) for path in all_file_paths
         ]
-        selected_checkpoint_info_list = [
+        all_selected_checkpoint_info_list = [
             info for info in checkpoint_info_list\
                 if info and info.tag == self.tag and is_optimal == info.is_optimal
         ]
-        if len(selected_checkpoint_info_list) == 0:
+        if len(all_selected_checkpoint_info_list) == 0:
             #logging.warning(
-            print(f"Cannot find checkpoint with tag '{self.tag}' in '{self.directory}'"
+            print(
+                f"Cannot find checkpoint with tag '{self.tag}' in '{self.directory}'"
             )
             return None, None
 
-        latest_checkpoint_info = max(
-            selected_checkpoint_info_list, key=lambda info: info.epochs
-        )
+        if self.search_pretrain:
+            selected_pretrain_checkpoint_info_list = [
+                info for info in checkpoint_info_list if info.is_pretrain
+            ]
+        
+        if not self.is_pretrain:
+            selected_checkpoint_info_list = [
+                info for info in checkpoint_info_list if not info.is_pretrain
+            ]
+        
+        if not self.is_pretrain:
+            if len(selected_checkpoint_info_list) > 0:
+                latest_checkpoint_info = max(
+                    selected_checkpoint_info_list, key=lambda info: info.epochs
+                )
+            elif self.search_pretrain:
+                latest_checkpoint_info = max(
+                    selected_pretrain_checkpoint_info_list, key=lambda info: info.epochs
+                )
+            else:
+                print(
+                    f"Cannot find checkpoint with tag '{self.tag}' in '{self.directory}'"
+                )
+                return None, None
+        else:
+            if len(selected_pretrain_checkpoint_info_list) > 0:
+                latest_checkpoint_info = max(
+                    selected_pretrain_checkpoint_info_list, key=lambda info: info.epochs
+                )
+            else:
+                print(
+                    f"Cannot find checkpoint with tag '{self.tag}' in '{self.directory}'"
+                )
+                return None, None
 
         # Get train values path
         if latest_checkpoint_info.path is None:
@@ -146,7 +200,8 @@ class CheckpointIO:
                 os.path.dirname(latest_checkpoint_info.path),
                 self._get_train_values_filename(
                     latest_checkpoint_info.epochs,
-                    latest_checkpoint_info.is_optimal
+                    latest_checkpoint_info.is_optimal,
+                    latest_checkpoint_info.is_pretrain
                 )
             )
         
@@ -208,7 +263,6 @@ class CheckpointIO:
         path = os.path.join(
             self.directory, self._get_train_values_filename(epochs, is_optimal)
         )
-        print(data)
         with open(path, 'w') as fp:
             json.dump(data, fp)
         if is_optimal:
@@ -220,7 +274,7 @@ class CheckpointIO:
         self, is_optimal: bool = True, device: Optional[torch.device] = None
     ) -> Optional[Tuple[Checkpoint, int]]:
         ckpt_path, train_values_path = self._get_latest_checkpoint_path(
-            is_optimal=is_optimal
+            is_optimal=is_optimal,
         )
         if ckpt_path is None:
             return None, None
