@@ -63,7 +63,12 @@ print(f"Using config {args.model_config}")
 # Get Data
 if args.freq == 0:
     args.freq = 'h'
-
+train_data, train_loader = data_provider(args, 'train')
+vali_data, vali_loader = data_provider(args, 'val')
+test_data, test_loader = data_provider(args, 'test')
+if args.freq != 'h':
+    args.freq = utils.SEASONALITY_MAP[test_data.freq]
+    print("freq = {}".format(args.freq))
 
 
 #########################
@@ -71,12 +76,6 @@ if args.freq == 0:
 #########################
 
 if args.train or args.pretrain_embeddings:
-    train_data, train_loader = data_provider(args, 'train')
-    vali_data, vali_loader = data_provider(args, 'val')
-    test_data, test_loader = data_provider(args, 'test')
-    if args.freq != 'h':
-        args.freq = utils.SEASONALITY_MAP[test_data.freq]
-        print("freq = {}".format(args.freq))
     
     print("TRAINING")
     # Get Configuration
@@ -194,8 +193,8 @@ if args.train or args.pretrain_embeddings:
         #for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in tqdm(enumerate(train_loader), disable=args.is_slurm):
         for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(train_loader):
 
-            #if i > 10:
-            #    break
+            if i > 3:
+                break
             #T0 = time.time()
             iter_count += 1
             model_optim.zero_grad()
@@ -257,7 +256,7 @@ if args.train or args.pretrain_embeddings:
             state=utils.CheckpointState(model, model_optim, None),
             epochs=epoch+1,
             train_steps=epoch,
-            min_valid_loss=min_valid_loss,
+            min_valid_loss=float(min_valid_loss),
             #metrics=ema_train_metrics.get_metrics(),
             is_optimal=False,
         )
@@ -275,7 +274,6 @@ if args.train or args.pretrain_embeddings:
             is_training=True,
             pretrain_embeddings=args.pretrain_embeddings
         )
-        print(valid_metrics)
         #valid_loss = vali(model, vali_data, vali_loader, criterion, args, device, ii)
         # test_loss = vali(model, test_data, test_loader, criterion, args, device, ii)
         # print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}, Test Loss: {4:.7f}".format(
@@ -283,6 +281,17 @@ if args.train or args.pretrain_embeddings:
         print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f}".format(
             epoch + 1, train_steps, train_loss, valid_metrics['loss']))
         if is_wandb:
+            log_metrics = {
+                k : v for k, v in valid_metrics.items()\
+                    if 'std' not in k and\
+                    ('loss' in k or 'mse' in k or 'mae' in k or 'mse' in k\
+                     or 'cross_entropy' in k or 'accuracy' in k) 
+            }
+            log_metrics['train_loss'] = train_loss
+            log_metrics['valid_loss'] = valid_metrics['loss']
+            log_metrics['epoch'] = epoch + 1
+            del log_metrics['loss']
+            """
             log_metrics = {
                 'train_loss' : train_loss,
                 'valid_loss' : valid_metrics['loss'],
@@ -292,6 +301,7 @@ if args.train or args.pretrain_embeddings:
                 'token_token' : valid_metrics['token_token'],
                 'epoch' : epoch+1,    
             }
+            """
             wandb.log(log_metrics, step=epoch+1)
         
         if valid_metrics['loss'] < min_valid_loss:
@@ -300,7 +310,7 @@ if args.train or args.pretrain_embeddings:
                 state=utils.CheckpointState(model, model_optim, None),
                 epochs=epoch+1,
                 train_steps=epoch,
-                min_valid_loss=min_valid_loss,
+                min_valid_loss=float(min_valid_loss),
                 is_optimal=True
             )
 
@@ -318,7 +328,7 @@ if args.train or args.pretrain_embeddings:
 #####  Evaluate  #####
 ######################
 print("Evaluating Test Set")
-args.label_len = 0
+#args.label_len = 0
 #train_data, train_loader = data_provider(args, 'train')
 vali_data, vali_loader = data_provider(args, 'val')
 """
@@ -437,7 +447,9 @@ for ii in itr_range:
         curves.append(copy(itr_results))
 
         if not args.noise_curve:
-            metric_dict = utils.metrics_to_dict(curves[-1])
+            metric_dict = utils.MetricCalculator.metrics_to_dict(
+                curves[-1], type='values'
+            )
             utils.save_test_results(metric_dict, checkpoint_model_dir)
 
         #best_model_path = path + '/' + 'checkpoint.pth'
@@ -450,8 +462,12 @@ for ii in itr_range:
         sys.exit(0)
     curves = np.array(curves)
     if args.noise_curve:
-        metric_dict = utils.metrics_to_dict(curves.transpose())
-        utils.save_noise_results(metric_dict, noise_scales, checkpoint_model_dir, noise_label)
+        metric_dict = utils.MetricCalculator.metrics_to_dict(
+            curves.transpose(), type='values'
+        )
+        utils.save_noise_results(
+            metric_dict, noise_scales, checkpoint_model_dir, noise_label
+        )
     calculations.append(curves)
 
 if args.itr is None:
