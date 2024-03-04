@@ -11,11 +11,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--keep_checkpoints', default=False, action='store_true')
     parser.add_argument('--restart_latest', default=False, action='store_true')
     parser.add_argument('--require_restart', default=False, action='store_true')
+    parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--debug', default=False, action='store_true')
 
     parser.add_argument('--noise', type=str, default=None)
     parser.add_argument('--noise_drift', type=str, default="identity")
-    parser.add_argument('--noise_var', type=str, default="sqrt_data")
+    parser.add_argument('--noise_var', type=str, default="identity")
     parser.add_argument('--noise_scale', type=float, default=1.)
     parser.add_argument('--noise_curve', default=False, action='store_true')
 
@@ -26,7 +27,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--freq', type=int, default=1)
     parser.add_argument('--target', type=str, default='OT')
     parser.add_argument('--embed', type=str, default='timeF')
-    parser.add_argument('--percent', type=int, default=10)
+    parser.add_argument('--percent', type=int, default=100)
 
     parser.add_argument('--seq_len', type=int, default=512)
     parser.add_argument('--pred_len', type=int, default=96)
@@ -51,6 +52,8 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--c_out', type=int, default=862)
     parser.add_argument('--patch_size', type=int, default=16)
     parser.add_argument('--kernel_size', type=int, default=25)
+    parser.add_argument('--pretrain_embeddings', default=False, action='store_true')
+    parser.add_argument('--pretrain_mask_ratio', type=float, default=0.15)
 
     parser.add_argument('--loss_func', type=str, default='mse')
     #parser.add_argument('--pretrain', type=bool, default=True)
@@ -64,6 +67,10 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--n_itr', type=int, default=3)
     parser.add_argument('--itr', type=int, default=None)
     parser.add_argument('--cos', type=int, default=0)
+
+    parser.add_argument('--plot_pred', default=False, action='store_true')
+    parser.add_argument('--plot_seed', type=int, default=101)
+    parser.add_argument('--plot_max', type=float, default=1e100)
 
     return parser
 
