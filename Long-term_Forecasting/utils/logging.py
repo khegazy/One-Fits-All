@@ -7,7 +7,11 @@ def setup_wandb(config, wandb_dir, run_name, debug, itr=None):
     wandb_dir = wandb_dir
     wandb_run = run_name
     wandb_config = dataclasses.asdict(config)
-    tags = [config.loss_config['type']]
+    tags = []
+    if config.predict_values:
+        tags.append(config.value_loss_config['type'])
+    if config.predict_tokens:
+        tags.append(config.token_loss_config['type'])
     if itr is not None:
         tags.append(f"itr_{itr}")
     if config.tokenizer is not None:
@@ -16,7 +20,7 @@ def setup_wandb(config, wandb_dir, run_name, debug, itr=None):
         tags.append("predict_tokens")
     if config.recursive:
         tags.append("recursive")
-    if config.pretrain:
+    if config.from_pretrain_model:
         tags.append("pretrain")
     else:
         tags.append("randInit")
