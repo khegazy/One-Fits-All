@@ -8,7 +8,7 @@ tokenizer_dict = {
     "naive" : NaiveBinning
 }
 
-def get_tokenizer(config, train_data, device, embed_size=None):
+def get_tokenizer(config, train_data, device, embed_size=None, hashes_only=False):
     if config.tokenizer is None:
         return None
     
@@ -18,9 +18,9 @@ def get_tokenizer(config, train_data, device, embed_size=None):
 
     if train_data is None:
         return tokenizer_dict[config.tokenizer](
-            config.tokenizer_config, None, device
+            config.tokenizer_config, None, device, hashes_only=hashes_only
         )
     else:
         return tokenizer_dict[config.tokenizer](
-            config.tokenizer_config, train_data.data_x, device
+            config.tokenizer_config, train_data.data_x, device, hashes_only=hashes_only
         )
