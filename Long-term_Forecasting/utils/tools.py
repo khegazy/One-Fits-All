@@ -1,5 +1,6 @@
 import os
 import json
+import einops
 import torch
 import torch.nn as nn
 import numpy as np
@@ -250,6 +251,24 @@ def convert_tsf_to_dataframe(
             contain_equal_length,
         )
 
+def plot_hist(name, vals1, vals2=None, lbl1='', lbl2='', x_lbl="Token Values", n_bins=2500):
+    alp = 1
+    if vals2 is not None:
+        alp = 0.3
+    fig, ax = plt.subplots()
+    ax.hist(
+        vals1, bins=np.arange(n_bins), color='b', alpha=alp, label=lbl1, density=True
+    )
+    if vals2 is not None:
+        ax.hist(
+            vals2, bins=np.arange(n_bins), color='r', alpha=0.3, label=lbl2, density=True
+        )
+    ax.set_yscale('log')
+    ax.set_xlabel(x_lbl)
+    ax.set_xlim(0,n_bins)
+    if lbl1 != '' or lbl2 != '':
+        ax.legend()
+    fig.savefig(name + ".png")
 
 def evaluate_dataset(
         model,
@@ -261,7 +280,9 @@ def evaluate_dataset(
         itr,
         as_dict=True,
         is_training=False,
-        pretrain_embeddings=False):
+        pretrain_embeddings=False,
+        plot_dir='./',
+        debug=False):
     
     if is_training:
         if args.model == 'PatchTST' or args.model == 'DLinear' or args.model == 'TCN':
@@ -275,14 +296,11 @@ def evaluate_dataset(
     total_losses = 0
     total_value_metrics = 0
     total_token_metrics = 0
-    value_value_loss = 0
-    value_token_loss = 0
-    token_value_loss = 0
-    token_token_loss = 0
     metric_calc = metrics.MetricCalculator(tokenizer)
+    input_tokens, pred_tokens = [], []
     with torch.no_grad():
         for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(data_loader):
-            if i > 3:
+            if debug and i > 3:
                 break
             if np.sum(np.isnan(batch_x.numpy())) > 0:
                 raise ValueError("GOT A NAN VALUE AT BATCH", i)
@@ -331,7 +349,18 @@ def evaluate_dataset(
             total_token_metrics = total_token_metrics + batch_token_metrics*n_samples
             
             total_samples = total_samples + n_samples
+
+            batch_x = einops.rearrange(batch_x, 'b l m -> b m l')
+            pred_y = einops.rearrange(predictions.value_values, 'b l m -> b m l')
+            input_tokens.append(tokenizer(batch_x).flatten())
+            pred_tokens.append(tokenizer(pred_y).flatten())
  
+    plot_hist(os.path.join(plot_dir, 'input_tokens'), torch.concatenate(input_tokens).cpu().numpy())
+    plot_hist(os.path.join(plot_dir, 'pred_tokens'), torch.concatenate(pred_tokens).cpu().numpy())
+    plot_hist(os.path.join(plot_dir, 'token_dist'), torch.concatenate(input_tokens).cpu().numpy(),
+        torch.concatenate(pred_tokens).cpu().numpy(), lbl1='Input', lbl2='Prediction')
+    sys.exit(0)
+
     if is_training:
         if args.model == 'PatchTST' or args.model == 'DLinear' or args.model == 'TCN':
             model.train()
@@ -340,26 +369,21 @@ def evaluate_dataset(
             for layer in model.out_layers:
                 layer.train()
            
-    total_losses = total_losses.cpu().numpy()/total_samples
+    total_losses = total_losses.cpu()/total_samples
+    total_losses = total_losses.tolist()
     
     total_value_metrics = total_value_metrics.detach().cpu()/total_samples
-    total_value_metrics = total_value_metrics.numpy()
+    total_value_metrics = total_value_metrics.tolist()
     total_token_metrics = total_token_metrics.detach().cpu()/total_samples
-    total_token_metrics = total_token_metrics.numpy()
+    total_token_metrics = total_token_metrics.tolist()
     if as_dict:
+        #print(total_losses.shape, total_value_metrics.shape, total_token_metrics.shape)
         return metric_calc.loss_metrics_to_dict(
-            total_losses, total_value_metrics, total_token_metrics
+            total_losses,
+            total_value_metrics,
+            total_token_metrics,
+            values_and_tokens=True
         )
-        total_metrics = metric_calc.metrics_to_dict(total_value_metrics, type='values')
-        total_metrics = total_metrics.update(
-            metric_calc.metrics_to_dict(total_token_metrics, type='tokens')
-        )
-        total_metrics['loss'] = total_loss
-        total_metrics['value_value'] = value_value_loss
-        total_metrics['value_token'] = value_token_loss
-        total_metrics['token_value'] = token_value_loss
-        total_metrics['token_token'] = token_token_loss
-        return total_metrics
     else:
         #total_losses = np.array(
         #    [total_loss, value_value_loss, value_token_loss, token_value_loss, token_token_loss]
@@ -367,29 +391,63 @@ def evaluate_dataset(
         return total_losses, np.array(total_value_metrics), np.array(total_token_metrics)
 
 
-    if not pretrain_embeddings:
-        total_metrics = total_metrics.detach().cpu()/total_samples
-        total_metrics = total_metrics.tolist()
-        if as_dict:
-            total_metrics = metrics.metrics_to_dict(total_metrics)
-            total_metrics["loss"] = total_loss
-        else:
-            total_metrics = np.concatenate([np.array([total_loss]), total_metrics])
-    elif as_dict:
-        total_metrics = {"loss" : total_loss}
+def save_test_results(value_dict, checkpoint_dir, filename='test_results', print_results=True):
+    with open(os.path.join(checkpoint_dir, f"{filename}.json"), "w") as file:
+        json.dump(value_dict, file, sort_keys=True)
+    if print_results:
+        with open(os.path.join(checkpoint_dir, f"{filename}.txt"), "w") as file:
+            #file.write("iter \t   MSE \t   MAE\n")
+            file.write(f"loss \t{value_dict['loss']:.4f} +/- {value_dict['loss_std']:.4f}\n")
+            #for lbl in metrics.get_labels():
+            #    file.write(f"{lbl} \t{value_dict[lbl]:.4f} +/- {value_dict[lbl+'_std']:.4f}\n")
+            #file.write("\n")
+
+def save_noise_results(value_dict, noise_scales, checkpoint_dir, label, merge_prev_results=True):
+    value_dict['std_scales'] = list(noise_scales)
+    for k in value_dict.keys():
+        value_dict[k] = list(value_dict[k])
     
-    if as_dict:
-        total_metrics['value_value'] = value_value_loss
-        total_metrics['value_token'] = value_token_loss
-        total_metrics['token_value'] = token_value_loss
-        total_metrics['token_token'] = token_token_loss
+    if merge_prev_results:
+        filename = os.path.join(checkpoint_dir, f"noise_{label}_results.json")
+        if os.path.exists(filename):
+            with open(filename, "r") as file:
+                prev_results = json.load(file)
+            if prev_results is not None:
+                for idx, ns_scale in enumerate(prev_results['std_scales']):
+                    if ns_scale in value_dict['std_scales']:
+                        continue
+                    for key, value in prev_results.items():
+                        value_dict[key].append(value[idx])
+    save_test_results(value_dict, checkpoint_dir, f"noise_{label}_results", False)
+
+def get_folder_names(args, setting, config, tokenizer, itr=None, has_itr=True):
+    tk_label = "None" if tokenizer is None else tokenizer.get_hash()
+    ls_val_label, ls_tkn_label = "", ""
+    if config.predict_values:
+        ls_val_label = f"{config.value_loss_config['type'].lower()}{hashes.get_hash(json.dumps(config.value_loss_config, sort_keys=True))}"
+    if config.predict_tokens:
+        ls_tkn_label = f"{config.token_loss_config['type'].lower()}{hashes.get_hash(json.dumps(config.token_loss_config, sort_keys=True))}"
+        if config.predict_values:
+            ls_tkn_label = "_" + ls_tkn_label
+    model_folder = f"tk-{tk_label}_ls-{ls_val_label}{ls_tkn_label}"\
+        + f"_rc-{config.recursive}_predTkns-{config.predict_tokens}"\
+        + f"_preTrn-{config.from_pretrain_model}"
+    checkpoint_dir = os.path.join(args.checkpoints, setting, model_folder)
+    if itr is None:
+        itr = args.itr
+    checkpoint_itr_dir = os.path.join(checkpoint_dir, f"itr_{itr}")
+
+    if has_itr:
+        return model_folder, checkpoint_itr_dir
     else:
-        total_metrics = np.array(
-            [total_loss, value_value_loss, value_token_loss, token_value_loss, token_token_loss]
-        )
-    return total_metrics
+        return model_folder, checkpoint_itr_dir, checkpoint_dir
+
+def MASE(x, freq, pred, true):
+    masep = np.mean(np.abs(x[:, freq:] - x[:, :-freq]))
+    return np.mean(np.abs(pred - true) / (masep + 1e-8))
 
 
+####################  Original Evaluation Functions  ####################     
 def vali(model, vali_data, vali_loader, criterion, args, device, itr):
     total_loss = []
     if args.model == 'PatchTST' or args.model == 'DLinear' or args.model == 'TCN':
@@ -424,10 +482,6 @@ def vali(model, vali_data, vali_loader, criterion, args, device, itr):
         model.in_layer.train()
         model.out_layer.train()
     return total_loss
-
-def MASE(x, freq, pred, true):
-    masep = np.mean(np.abs(x[:, freq:] - x[:, :-freq]))
-    return np.mean(np.abs(pred - true) / (masep + 1e-8))
 
 def test(model, test_data, test_loader, args, device, itr):
     preds = []
@@ -472,55 +526,3 @@ def test(model, test_data, test_loader, args, device, itr):
 
     return mse, mae
 
-def save_test_results(value_dict, checkpoint_dir, filename='test_results', print_results=True):
-    with open(os.path.join(checkpoint_dir, f"{filename}.json"), "w") as file:
-        json.dump(value_dict, file, sort_keys=True)
-    if print_results:
-        with open(os.path.join(checkpoint_dir, f"{filename}.txt"), "w") as file:
-            #file.write("iter \t   MSE \t   MAE\n")
-            file.write(f"loss \t{value_dict['loss']:.4f} +/- {value_dict['loss_std']:.4f}\n")
-            for lbl in metrics.get_labels():
-                file.write(f"{lbl} \t{value_dict[lbl]:.4f} +/- {value_dict[lbl+'_std']:.4f}\n")
-            file.write("\n")
-
-def save_noise_results(value_dict, noise_scales, checkpoint_dir, label, merge_prev_results=True):
-    value_dict['std_scales'] = list(noise_scales)
-    for k in value_dict.keys():
-        print(k, value_dict[k])
-        value_dict[k] = list(value_dict[k])
-    
-    if merge_prev_results:
-        filename = os.path.join(checkpoint_dir, f"noise_{label}_results.json")
-        if os.path.exists(filename):
-            with open(filename, "r") as file:
-                prev_results = json.load(file)
-            if prev_results is not None:
-                for idx, ns_scale in enumerate(prev_results['std_scales']):
-                    if ns_scale in value_dict['std_scales']:
-                        continue
-                    for key, value in prev_results.items():
-                        value_dict[key].append(value[idx])
-    save_test_results(value_dict, checkpoint_dir, f"noise_{label}_results", False)
-
-
-def get_folder_names(args, setting, config, tokenizer, itr=None, has_itr=True):
-    tk_label = "None" if tokenizer is None else tokenizer.get_hash()
-    ls_val_label, ls_tkn_label = "", ""
-    if config.predict_values:
-        ls_val_label = f"{config.value_loss_config['type'].lower()}{hashes.get_hash(json.dumps(config.value_loss_config, sort_keys=True))}"
-    if config.predict_tokens:
-        ls_tkn_label = f"{config.token_loss_config['type'].lower()}{hashes.get_hash(json.dumps(config.token_loss_config, sort_keys=True))}"
-        if config.predict_values:
-            ls_tkn_label = "_" + ls_tkn_label
-    model_folder = f"tk-{tk_label}_ls-{ls_val_label}{ls_tkn_label}"\
-        + f"_rc-{config.recursive}_predTkns-{config.predict_tokens}"\
-        + f"_preTrn-{config.from_pretrain_model}"
-    checkpoint_dir = os.path.join(args.checkpoints, setting, model_folder)
-    if itr is None:
-        itr = args.itr
-    checkpoint_itr_dir = os.path.join(checkpoint_dir, f"itr_{itr}")
-
-    if has_itr:
-        return model_folder, checkpoint_itr_dir
-    else:
-        return model_folder, checkpoint_itr_dir, checkpoint_dir

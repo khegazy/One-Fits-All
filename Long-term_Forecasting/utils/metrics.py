@@ -112,8 +112,8 @@ def get_loss(config, tokenizer):
         value_loss_config = config.embedding_value_loss_config
         token_loss_config = config.embedding_token_loss_config
     else:
-        value_loss_config = config.value_loss_config
-        token_loss_config = config.token_loss_config
+        value_loss_config = config.value_loss_config if config.predict_values else None
+        token_loss_config = config.token_loss_config if config.predict_tokens else None
     
     return Loss(
         value_loss_config,
@@ -159,13 +159,21 @@ def ND(pred, true, *args):
     return torch.mean(torch.abs(true - pred)) / torch.mean(torch.abs(true))
 
 
-value_labels = ["mae", "mse", "rmse", "mape", "mspe", "smape", "nd"]
-token_labels = ["cross_entropy", "accuracy"]
+def get_labels(type='value'):
+    if type == 'values' or type == 'value':
+        return [
+            "mae", "mse", "rmse", "mape", "mspe", "smape", "nd"
+        ]
+    elif type == 'tokens' or type == 'token':
+        return ["cross_entropy", "accuracy"]
+    else:
+        raise ValueError(f"Cannot handle type '{type}'")
+
 class MetricCalculator:
     def __init__(self, tokenizer=None):
         self.tokenizer = tokenizer
-        self.n_values = len(value_labels)
-        self.n_tokens = len(token_labels)
+        self.n_values = len(get_labels('value'))
+        self.n_tokens = len(get_labels('token'))
     
     def __call__(self, pred, truth):
         if self.tokenizer is not None:
@@ -193,7 +201,7 @@ class MetricCalculator:
             value_tokens = torch.ones(self.n_tokens)*torch.nan 
         
         if pred.token_values is not None:
-            token_values = MetricCalculator.value_metric(
+            token_values = MetricCalculator.value_metrics(
                 pred.token_values, truth
             )
         else:
@@ -237,12 +245,13 @@ class MetricCalculator:
         losses_std=None,
         value_std=None,
         token_std=None,
+        values_and_tokens=False
     ):
         output_value = MetricCalculator.metrics_to_dict(
-            value_metrics, value_std, type='value'
+            value_metrics, value_std, type='value', values_and_tokens=values_and_tokens
         )
         output_token = MetricCalculator.metrics_to_dict(
-            token_metrics, token_std, type='token'
+            token_metrics, token_std, type='token', values_and_tokens=values_and_tokens
         )
         output = {**output_value, **output_token}
 
@@ -262,11 +271,11 @@ class MetricCalculator:
         return output
 
     @staticmethod
-    def metrics_to_dict(metrics, metric_std=None, type='values', prefix=''):
+    def metrics_to_dict(metrics, metric_std=None, type='values', values_and_tokens=False, prefix=''):
         if metric_std is None:
             metric_std = np.ones_like(metrics)*np.nan
         
-        if len(metrics.shape) == 2:
+        if values_and_tokens:
             if type[-1] == 's':
                 type = type[:-1]
             output = {}
@@ -278,12 +287,7 @@ class MetricCalculator:
                 )}
             return output
 
-        if type == 'values' or type == 'value':
-            labels = value_labels
-        elif type == 'tokens' or type == 'token':
-            labels = token_labels
-        else:
-            raise ValueError(f"Cannot handle type '{type}'")
+        labels = get_labels(type)
         
         if len(labels) == len(metrics)-1:
             labels = ['loss'] + labels
@@ -296,12 +300,6 @@ class MetricCalculator:
 
         return output
 
-"""
-def get_labels():
-    return [
-        "mae", "mse", "rmse", "mape", "mspe", "smape", "nd"
-    ]
-"""
 
 def cross_entropy(logits, tokens_y):
     return F.cross_entropy(
@@ -316,26 +314,37 @@ def accuracy(input, tokens_y):
 
 def load_noise_metrics(results_dir, label, noise, require_loss=True):
     filename = os.path.join(results_dir, f"noise_{label}_results.json")
+    print(filename)
     if os.path.exists(filename):
         with open(filename, "r") as file:
             noise_dict = json.load(file)
     else:
         return None
     
-    labels = get_labels()
-    if require_loss:
-        labels.insert(0, 'loss')
-    
     if noise not in noise_dict['std_scales']:
         return None
     idx = noise_dict['std_scales'].index(noise)
-    results = []
-    for lbl in labels:
-        if lbl not in noise_dict.keys():
-            return None
-        results.append(noise_dict[lbl][idx])
     
-    return results
+    results = {}
+    types = ['value', 'token']
+    if require_loss:
+        results['loss'] = [noise_dict['loss'][idx]]
+    else:
+        results['loss'] = None
+    for tp2 in types:
+        labels = get_labels(tp2)
+        results[tp2] = []
+        for tp1 in types:
+            results[tp2].append([])
+            for lbl in labels:
+                label = f"{tp1}_{tp2}_{lbl}"
+                if label not in noise_dict.keys():
+                    return None
+                results[tp2][-1].append(noise_dict[label][idx])
+            if require_loss:
+                results['loss'].append(noise_dict[f"{tp1}_{tp2}_loss"][idx])
+    
+    return np.array(results['loss']), np.array(results['value']), np.array(results['token'])
 
 
 """
