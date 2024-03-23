@@ -33,15 +33,18 @@ class CheckpointBuilder:
 
     @staticmethod
     def load_checkpoint(
-        state: CheckpointState, checkpoint: Checkpoint, strict: bool
+        state: CheckpointState, checkpoint: Checkpoint, strict: bool, model_only: bool = False
     ) -> None:
         state.model.load_state_dict(checkpoint["model"], strict=strict)  # type: ignore
-        if state.optimizer is not None:
-            state.optimizer.load_state_dict(checkpoint["optimizer"])
-        if checkpoint["lr_scheduler"] is None:
-            state.lr_scheduler = None
+        if not model_only:
+            if state.optimizer is not None:
+                state.optimizer.load_state_dict(checkpoint["optimizer"])
+            if checkpoint["lr_scheduler"] is None:
+                state.lr_scheduler = None
+            else:
+                state.lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
         else:
-            state.lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+            print("Loading model only")
 
 
 @dataclasses.dataclass
@@ -352,11 +355,17 @@ class CheckpointHandler:
             if is_expected:
                 raise ImportError("Cannot load expected checkpoint")
             else:
+                print("Model is starting from scratch")
                 return None
 
+        load_model_only = self.io.search_pretrain and not self.io.is_pretrain
         self.builder.load_checkpoint(
-            state=state, checkpoint=checkpoint, strict=strict
+            state=state,
+            checkpoint=checkpoint,
+            strict=strict,
+            model_only=load_model_only
         )
+        train_values = None if load_model_only else train_values
         return train_values
 
     def load_checkpoint(
