@@ -6,11 +6,14 @@ from utils.hashes import get_hash
 
 
 class CDFbinning(torch.nn.Module):
-    def __init__(self, config, train_data, device):
+    def __init__(self, config, train_data, device, hashes_only=False):
         super().__init__()
         self.n_tokens = config["n_tokens"]
         self.is_patched = False
         self.merge_patch = True
+        self.hashes_only = hashes_only
+        if hashes_only:
+            return
         if train_data is None:
             return None
         
@@ -60,6 +63,8 @@ class CDFbinning(torch.nn.Module):
         return self.token_values[tokens]
 
     def forward(self, input, return_logits=False):
+        if self.hashes_only:
+            return ValueError("Cannot run tokenizer with in hashes_only mode")
         token_idxs = torch.searchsorted(self.token_values, input)
         token_idxs = token_idxs.to(self.token_dtype)
         token_idxs[token_idxs>=self.n_tokens] = self.n_tokens - 1

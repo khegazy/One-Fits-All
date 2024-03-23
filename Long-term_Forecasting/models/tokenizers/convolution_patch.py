@@ -6,7 +6,7 @@ from einops import rearrange
 from utils.hashes import get_hash
 
 class ConvolutionPatches(torch.nn.Module):
-    def __init__(self, config, train_data, device) -> None:
+    def __init__(self, config, train_data, device, hashes_only=False) -> None:
         super().__init__()
         self.n_tokens = config['n_tokens']
         self.embed_size = config['embed_size']
@@ -19,6 +19,9 @@ class ConvolutionPatches(torch.nn.Module):
         self.is_patched = True
         self.merge_patch = False
         self.legendre_init = config['legendre_init']
+        self.hashes_only = hashes_only
+        if self.hashes_only:
+            return
         if self.n_layers == 1:
             self.n_filters = 1
             self.kernel = self.patch_size
@@ -109,6 +112,8 @@ class ConvolutionPatches(torch.nn.Module):
         return f"convPatch{self.hash}"
     
     def forward(self, input, return_logits=False):
+        if self.hashes_only:
+            return ValueError("Cannot run tokenizer with in hashes_only mode")
         #print("INP SHAPE", input.shape)
         B, M, L = input.shape
         input = rearrange(input, 'b m l -> (b m) l')
@@ -125,7 +130,8 @@ class ConvolutionPatches(torch.nn.Module):
             #print("XXXXXXXX", x.shape)
             x = self.fwd_layers[-1](x)
         if return_logits:
-            return rearrange(x, '(b m) c l -> b c m l', b=B)
+            return rearrange(x, '(b m) c l -> b m l c', b=B)
+            #return rearrange(x, '(b m) c l -> b c m l', b=B)
         else: 
             x = torch.argmax(x, dim=-2)
             #print("OUT", x.shape)
