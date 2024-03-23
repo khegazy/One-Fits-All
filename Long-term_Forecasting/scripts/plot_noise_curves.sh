@@ -1,7 +1,8 @@
-seq_len=32 #512
+seq_len=512
 model=GPT4TS
+DATA="ECL_"
 
-for pred_len in 37 #96 192 336 720
+for pred_len in 96 #192 336 720
 do
 for percent in 100
 do
@@ -9,10 +10,10 @@ do
 python3 plot_noise_curves.py "$@"\
     --root_path /pscratch/sd/k/khegazy/datasets/time_series/electricity/consumer_load/ \
     --data_path electricity.csv \
-    --model_id $model \
+    --model_id ${DATA}${model} \
     --data custom \
     --seq_len $seq_len \
-    --label_len 32 \
+    --label_len 0 \
     --pred_len $pred_len \
     --batch_size 128 \
     --learning_rate 0.0001 \
